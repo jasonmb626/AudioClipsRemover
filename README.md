@@ -11,11 +11,13 @@ I downloaded hundreds of episodes of a podcast only to find that whatever servic
 ```
 python -m venv .venv
 .venv\Scripts\activate
+pip install -r requirements.txt
 ```
 ### Linux/Mac?
 ```sh
 python3 -m venv .venv
 . .venv/bin/activate
+pip3 install -r requirements.txt
 ```
 
 ### Example Run

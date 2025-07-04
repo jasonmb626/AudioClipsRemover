@@ -15,7 +15,7 @@ python -m venv .venv
 ### Linux/Mac?
 ```sh
 python3 -m venv .venv
-. .venv\bin\activate
+. .venv/bin/activate
 ```
 
 ### Example Run
@@ -25,4 +25,6 @@ python audio_clips_remover.py -u Waterhose_commercial.arr.npy -u Waterhose_comme
 ```
 
 This will create two directories: trimmed, discard, and place files in them
+
+There appear to be two similar but not quite the same versions of the commecrial, so I'm checking for both.
 

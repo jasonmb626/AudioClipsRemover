@@ -1,0 +1,4 @@
+soundfile
+music_tag
+numpy
+scipy

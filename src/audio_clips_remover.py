@@ -6,6 +6,8 @@ import music_tag
 import numpy as np
 import scipy
 
+from audio_clip import AudioClip
+
 MATCH_THRESHOLD_DEFAULT = 1
 CORRELATION_CHUNK_MINUTES_DEFAULT = 30
 
@@ -37,32 +39,34 @@ class BaseAudioData():
     1. Holds audio data and information about audio data.
     2. Automatically converts stereo tracks to mono on load if necessary
     3. simple method to remove a range and optionally add said removed range to discard."""
-    def __init__(self, audio_data, audio_samplerate, logger=None):
+    def __init__(self, audio_clip: AudioClip, logger=None):
         self.discard_data = None
-        self.audio_data = audio_data
-        self.audio_samplerate = audio_samplerate
-        if audio_data.ndim > 1:
-            right_side = self.audio_data[:,0]
-            left_side = self.audio_data[:,1]
+        self.audio_clip = audio_clip
+        if self.audio_clip.audio_data.ndim > 1:
+            right_side = self.audio_clip.audio_data[:,0]
+            left_side = self.audio_clip.audio_data[:,1]
             mono_data = (right_side + left_side) / 2
-            del self.audio_data #Might not be true but there's a chance explicitly calling del this way speeds up how quickly garbage collection kicks in
-            self.audio_data = mono_data
-        self.audio_mean = np.mean(np.abs(self.audio_data))
-        self.original_data_clip_len = self.audio_data.size
+            del self.audio_clip.audio_data #Might not be true but there's a chance explicitly calling del this way speeds up how quickly garbage collection kicks in
+            self.audio_clip.audio_data = mono_data
+        self.audio_mean = np.mean(np.abs(self.audio_clip.audio_data))
+        self.original_data_clip_len = self.audio_clip.audio_data.size
         self.logger = logger
         
     def remove_audio_range(self, start_index, end_index, capture_discard=False):
         if capture_discard:
-            self.discard_data = np.append(self.audio_data[start_index:end_index], self.discard_data)    
-        self.audio_data = np.delete(self.audio_data, slice(start_index, end_index))
+            self.discard_data = np.append(self.audio_clip.audio_data[start_index:end_index], self.discard_data)    
+        self.audio_clip = AudioClip(
+            np.delete(self.audio_clip.audio_data, slice(start_index, end_index)),
+            self.audio_clip.sample_rate
+        )
              
 
 class UnwantedClip(BaseAudioData):
     """Holds the data for an unwanted clip that should be removed
     1. Automatically trims loaded content to ignore leading and trailing silence
     2. Keeps original clip lenght in memory as this is how much the AudioClipsRemover class will actually remove"""
-    def __init__(self, audio_data, audio_samplerate, logger=None, match_threshold=MATCH_THRESHOLD_DEFAULT):
-        super().__init__(audio_data, audio_samplerate, logger)
+    def __init__(self, audio_clip: AudioClip, logger=None, match_threshold=MATCH_THRESHOLD_DEFAULT):
+        super().__init__(audio_clip, logger)
         self.trimmed_clip_start = 0
         self.trimmed_clip_end = 0
         self._trim_data_clip()
@@ -72,24 +76,24 @@ class UnwantedClip(BaseAudioData):
         i = 0
         cnt_negligible = 0
         while cnt_negligible <= 50:
-            if abs(self.audio_data[i]) <= 1e-1:
+            if abs(self.audio_clip.audio_data[i]) <= 1e-1:
                 cnt_negligible = 0
             else:
                 cnt_negligible += 1
             i += 1
         self.trimmed_clip_start = i - cnt_negligible
         self.remove_audio_range(0, self.trimmed_clip_start)
-        i = self.audio_data.size - 1
+        i = self.audio_clip.audio_data.size - 1
         cnt_negligible = 0
         while cnt_negligible <= 50:
-            if abs(self.audio_data[i]) <= 1e-1:
+            if abs(self.audio_clip.audio_data[i]) <= 1e-1:
                 cnt_negligible = 0
             else:
                 cnt_negligible += 1
             i -= 1
         self.trimmed_clip_end = i + cnt_negligible
-        self.remove_audio_range(self.trimmed_clip_end, self.audio_data.size)
-        self.audio_mean = np.mean(np.abs(self.audio_data))
+        self.remove_audio_range(self.trimmed_clip_end, self.audio_clip.audio_data.size)
+        self.audio_mean = np.mean(np.abs(self.audio_clip.audio_data))
 
 
 class AudioClipsRemover(BaseAudioData):
@@ -121,8 +125,8 @@ class AudioClipsRemover(BaseAudioData):
         if logger:
             logger.log (match_file + ' saved')
  
-    def __init__(self, audio_data, audio_samplerate, logger=None, correlation_chunk_minutes=CORRELATION_CHUNK_MINUTES_DEFAULT):
-        super().__init__(audio_data, audio_samplerate, logger)
+    def __init__(self, audio_clip: AudioClip, logger=None, correlation_chunk_minutes=CORRELATION_CHUNK_MINUTES_DEFAULT):
+        super().__init__(audio_clip, logger)
         self.discard_data = np.array([])
         self._correlation = None
         self._audio_for_correlation = None
@@ -138,7 +142,7 @@ class AudioClipsRemover(BaseAudioData):
         self._unwanted_clip_ranges = []
 
     def add_unwanted_clip(self, unwanted_clip: UnwantedClip):
-        if unwanted_clip.audio_samplerate != self.audio_samplerate:
+        if unwanted_clip.audio_clip.sample_rate != self.audio_clip.sample_rate:
             raise Exception('Sample rates do not match.')
         self._unwanted_clips.append(unwanted_clip)
         if unwanted_clip.original_data_clip_len > self._longest_unwanted_clip_frames:
@@ -146,14 +150,14 @@ class AudioClipsRemover(BaseAudioData):
                 
     def save_audio(self, outfilepath):
         """Helper method to save the (hopefully) trimmed audio to a new file."""
-        sf.write(outfilepath, self.audio_data, self.audio_samplerate)
+        sf.write(outfilepath, self.audio_clip.audio_data, self.audio_clip.sample_rate)
         if self.logger:
             self.logger.log(outfilepath + ' trimmed audio saved.')
         
     def save_discard(self, outfilepath):
         """Helper method to save the discarded audio (if any) to a new file."""
         if self.discard_data.size > 0:
-            sf.write(outfilepath, self.discard_data, self.audio_samplerate)
+            sf.write(outfilepath, self.discard_data, self.audio_clip.sample_rate)
             if self.logger:
                 self.logger.log(outfilepath + ' discard audio saved.')
         else:
@@ -163,19 +167,19 @@ class AudioClipsRemover(BaseAudioData):
     def _correlate_with_sample(self, sample : UnwantedClip, start_frame: int, num_frames: int):
         """Determine end frame, get a copy of the audio chunk against which to perform the correlation, and then do said correlation"""
         # Ensure both audio files have the same sample rate (adjust if necessary)
-        if sample.audio_samplerate != self.audio_samplerate:
+        if sample.audio_clip.sample_rate != self.audio_clip.sample_rate:
             raise Exception('Sample rates do not match.')
         if self._correlation is not None:
             del self._correlation #Might not be true but there's a chance explicitly calling del this way speeds up how quickly garbage collection kicks in
         if self._audio_for_correlation is not None:
             del self._audio_for_correlation #Might not be true but there's a chance explicitly calling del this way speeds up how quickly garbage collection kicks in
         end_frame = start_frame + num_frames
-        if end_frame > self.audio_data.size:
-            end_frame = self.audio_data.size
-        self._audio_for_correlation = self.audio_data[start_frame:end_frame].copy()
+        if end_frame > self.audio_clip.audio_data.size:
+            end_frame = self.audio_clip.audio_data.size
+        self._audio_for_correlation = self.audio_clip.audio_data[start_frame:end_frame].copy()
         if self.logger:
             self.logger.log('Doing correlation on ' + str(self._audio_for_correlation.size) + ' frames.')
-        self._correlation = scipy.signal.correlate(self._audio_for_correlation, sample.audio_data, mode='full')
+        self._correlation = scipy.signal.correlate(self._audio_for_correlation, sample.audio_clip.audio_data, mode='full')
         if self.logger:
             self.logger.log('Did correlation. Len=' + str(self._correlation.size))
         
@@ -184,8 +188,8 @@ class AudioClipsRemover(BaseAudioData):
         This method probably needs work as it's not completely logical. Maybe it should return the data instead of setting it at object-level"""
         self.moved_offset = 0
         self.peak_index = np.argmax(self._correlation)    
-        self.check_offset_samples = self.peak_index + start_frame - (sample.audio_data.size - 1) 
-        self.offset_samples = self.peak_index + start_frame - (sample.audio_data.size + sample.trimmed_clip_start - 1)
+        self.check_offset_samples = self.peak_index + start_frame - (sample.audio_clip.audio_data.size - 1) 
+        self.offset_samples = self.peak_index + start_frame - (sample.audio_clip.audio_data.size + sample.trimmed_clip_start - 1)
         if self.offset_samples < 0:
             self.moved_offset = -self.offset_samples
             if self.logger:
@@ -200,10 +204,10 @@ class AudioClipsRemover(BaseAudioData):
         Other things I tried:
         1. Making sense of the value at peak_index, but it seems to be all relative
         2. Noting how quickly (shape of curve) the correlation matches on either side of the one at peak index, but couldn't find any real meaning there either."""
-        matched_data = self.audio_data[self.check_offset_samples:self.check_offset_samples + sample.audio_data.size]
+        matched_data = self.audio_clip.audio_data[self.check_offset_samples:self.check_offset_samples + sample.audio_clip.audio_data.size]
         mean = np.mean(np.abs(matched_data))
         matched_data = matched_data * sample.audio_mean / mean #Adjust for audio volume differences
-        diff = np.sum(matched_data - sample.audio_data)
+        diff = np.sum(matched_data - sample.audio_clip.audio_data)
         if self.logger:
             self.logger.log('Calculated difference: ' + str(diff) + '. correlation=' + str(self._correlation[self.peak_index]))
         return diff
@@ -214,14 +218,14 @@ class AudioClipsRemover(BaseAudioData):
         Perhaps it should return the list instead? Or have a different name."""
         start_frame = 0
         end_frame = 0
-        frames_to_check = self._correlation_chunk_minutes * 60 * self.audio_samplerate
-        while end_frame < self.audio_data.size:
+        frames_to_check = self._correlation_chunk_minutes * 60 * self.audio_clip.sample_rate
+        while end_frame < self.audio_clip.audio_data.size:
             start_frame = end_frame - self._longest_unwanted_clip_frames - 1
             if start_frame < 0:
                 start_frame = 0
             end_frame = start_frame + frames_to_check
-            if end_frame > self.audio_data.size:
-                end_frame = self.audio_data.size
+            if end_frame > self.audio_clip.audio_data.size:
+                end_frame = self.audio_clip.audio_data.size
             for unwanted_clip in self._unwanted_clips:
                 self._correlate_with_sample(unwanted_clip, start_frame, frames_to_check)
                 rounds = 0
@@ -236,7 +240,7 @@ class AudioClipsRemover(BaseAudioData):
                     diff = self._calculate_correlation_accuracy(unwanted_clip)      
                     if abs(diff) < unwanted_clip.match_threshold:
                         if self.logger:
-                            self.logger.log('Found unwanted clip at ' + str(self.offset_samples) + ' - ' + str(self.offset_samples / self.audio_samplerate))
+                            self.logger.log('Found unwanted clip at ' + str(self.offset_samples) + ' - ' + str(self.offset_samples / self.audio_clip.sample_rate))
                         self._unwanted_clip_ranges.append((self.offset_samples, self.offset_samples + unwanted_clip.original_data_clip_len))
                         #Zero out the range we already confirmed, so it won't show as peak correlation on next round
                         self._correlation[self.offset_samples - start_frame:self.offset_samples - start_frame + unwanted_clip.original_data_clip_len] = 0
@@ -259,22 +263,23 @@ class AudioClipsRemover(BaseAudioData):
         self._unwanted_clip_ranges.sort(key = lambda x: x[0], reverse=True)
         for unwanted_clip_range in self._unwanted_clip_ranges:
             start_frame, end_frame = unwanted_clip_range
-            print('Start: ' + str(start_frame / self.audio_samplerate) + ' End: ' + str(end_frame / self.audio_samplerate))
+            print('Start: ' + str(start_frame / self.audio_clip.sample_rate) + ' End: ' + str(end_frame / self.audio_clip.sample_rate))
 
 
 def make_audio_clips_remover(data):
     """Instantiates an AudioClipsRemover class with all data populated so all we need to do is call the find, remove, save methods in main"""
     """Input is a dict generated from command-line args and other defaults"""
     logger = Tee(data['log_filepath'])
-    podcast_data, podcast_samplerate = sf.read(data['original_whole_audio'])
-    podcast = AudioClipsRemover(podcast_data, podcast_samplerate, logger)
+    audio_clip: AudioClip = AudioClip.from_audio_file(data['original_whole_audio'])
+    podcast = AudioClipsRemover(audio_clip, logger)
     for unwanted_clip_path in data['unwanted_clip_paths']:
         if unwanted_clip_path.endswith('.npy'):
             unwanted_clip_data = np.load(unwanted_clip_path)
-            unwanted_clip_samplerate = podcast_samplerate
+            unwanted_clip_samplerate = audio_clip.sample_rate
+            unwanted_audio_clip = AudioClip(unwanted_clip_data, unwanted_clip_samplerate)
         else:
-            unwanted_clip_data, unwanted_clip_samplerate = sf.read(unwanted_clip_path)
-        unwanted_clip = UnwantedClip(unwanted_clip_data, unwanted_clip_samplerate, logger)
+            unwanted_audio_clip = AudioClip.from_audio_file(unwanted_clip_path)
+        unwanted_clip = UnwantedClip(unwanted_audio_clip, logger)
         podcast.add_unwanted_clip(unwanted_clip)
     return podcast
 

@@ -23,7 +23,7 @@ class Tee():
         self.logfile = None
         if logpath:
             self.logfile = open(logpath, 'w')
-    
+
     def log(self, message):
         print(message)
         if self.logfile:
@@ -35,7 +35,7 @@ class Tee():
 
 
 class BaseAudioData():
-    """Base class, not intended to be instantiated. 
+    """Base class, not intended to be instantiated.
     1. Holds audio data and information about audio data.
     2. Automatically converts stereo tracks to mono on load if necessary
     3. simple method to remove a range and optionally add said removed range to discard."""
@@ -51,15 +51,15 @@ class BaseAudioData():
         self.audio_mean = np.mean(np.abs(self.audio_clip.audio_data))
         self.original_data_clip_len = self.audio_clip.audio_data.size
         self.logger = logger
-        
+
     def remove_audio_range(self, start_index, end_index, capture_discard=False):
         if capture_discard:
-            self.discard_data = np.append(self.audio_clip.audio_data[start_index:end_index], self.discard_data)    
+            self.discard_data = np.append(self.audio_clip.audio_data[start_index:end_index], self.discard_data)
         self.audio_clip = AudioClip(
             np.delete(self.audio_clip.audio_data, slice(start_index, end_index)),
             self.audio_clip.sample_rate
         )
-             
+
 
 class UnwantedClip(BaseAudioData):
     """Holds the data for an unwanted clip that should be removed
@@ -71,7 +71,7 @@ class UnwantedClip(BaseAudioData):
         self.trimmed_clip_end = 0
         self._trim_data_clip()
         self.match_threshold = match_threshold
-   
+
     def _trim_data_clip(self):
         i = 0
         cnt_negligible = 0
@@ -118,13 +118,13 @@ class AudioClipsRemover(BaseAudioData):
                 new[key] = 0
             elif key == 'year':
                 #This library does not allow multiple years (throws exception) but some audio tags include multiple years, so just take the first one
-                new[key] = str(orig['year']).split(',')[0] 
+                new[key] = str(orig['year']).split(',')[0]
             else:
                 new[key] = orig[key]
         new.save()
         if logger:
             logger.log (match_file + ' saved')
- 
+
     def __init__(self, audio_clip: AudioClip, logger=None, correlation_chunk_minutes=CORRELATION_CHUNK_MINUTES_DEFAULT):
         super().__init__(audio_clip, logger)
         self.discard_data = np.array([])
@@ -147,13 +147,13 @@ class AudioClipsRemover(BaseAudioData):
         self._unwanted_clips.append(unwanted_clip)
         if unwanted_clip.original_data_clip_len > self._longest_unwanted_clip_frames:
             self._longest_unwanted_clip_frames = unwanted_clip.original_data_clip_len
-                
+
     def save_audio(self, outfilepath):
         """Helper method to save the (hopefully) trimmed audio to a new file."""
         sf.write(outfilepath, self.audio_clip.audio_data, self.audio_clip.sample_rate)
         if self.logger:
             self.logger.log(outfilepath + ' trimmed audio saved.')
-        
+
     def save_discard(self, outfilepath):
         """Helper method to save the discarded audio (if any) to a new file."""
         if self.discard_data.size > 0:
@@ -182,13 +182,13 @@ class AudioClipsRemover(BaseAudioData):
         self._correlation = scipy.signal.correlate(self._audio_for_correlation, sample.audio_clip.audio_data, mode='full')
         if self.logger:
             self.logger.log('Did correlation. Len=' + str(self._correlation.size))
-        
+
     def _set_peak_correlation(self, sample: UnwantedClip, start_frame: int):
         """Sets peak correlation and offsets for use in other methods
         This method probably needs work as it's not completely logical. Maybe it should return the data instead of setting it at object-level"""
         self.moved_offset = 0
-        self.peak_index = np.argmax(self._correlation)    
-        self.check_offset_samples = self.peak_index + start_frame - (sample.audio_clip.audio_data.size - 1) 
+        self.peak_index = np.argmax(self._correlation)
+        self.check_offset_samples = self.peak_index + start_frame - (sample.audio_clip.audio_data.size - 1)
         self.offset_samples = self.peak_index + start_frame - (sample.audio_clip.audio_data.size + sample.trimmed_clip_start - 1)
         if self.offset_samples < 0:
             self.moved_offset = -self.offset_samples
@@ -211,7 +211,7 @@ class AudioClipsRemover(BaseAudioData):
         if self.logger:
             self.logger.log('Calculated difference: ' + str(diff) + '. correlation=' + str(self._correlation[self.peak_index]))
         return diff
-    
+
     def find_unwanted_clip_ranges(self):
         """This method splits the original (whole) audio into smaller chunks, performs a correlation against all unwanted audio clips, determines accuracy, and populates
         a list of ranges to cut if those ranges are within the match threshold
@@ -237,7 +237,7 @@ class AudioClipsRemover(BaseAudioData):
                     self._set_peak_correlation(unwanted_clip, start_frame)
                     if self.check_offset_samples < 0:
                         break
-                    diff = self._calculate_correlation_accuracy(unwanted_clip)      
+                    diff = self._calculate_correlation_accuracy(unwanted_clip)
                     if abs(diff) < unwanted_clip.match_threshold:
                         if self.logger:
                             self.logger.log('Found unwanted clip at ' + str(self.offset_samples) + ' - ' + str(self.offset_samples / self.audio_clip.sample_rate))
@@ -257,7 +257,7 @@ class AudioClipsRemover(BaseAudioData):
             self.remove_audio_range(start_of_range, end_of_range, capture_discard)
             if self.logger:
                 self.logger.log('Removed from ' + str(start_of_range) + ' to ' + str(end_of_range))
-            
+
     def print_found_unwanted_clip_ranges(self):
         """For debugging, print the ranges that would be deleted by remove_found_unwanted_clip_ranges"""
         self._unwanted_clip_ranges.sort(key = lambda x: x[0], reverse=True)
@@ -294,7 +294,7 @@ def process_args_to_dict(args):
             args.pop(0)
         else:
             data['original_whole_audio'] = args[0]
-            args.pop(0)        
+            args.pop(0)
     data['trimmed_podcast_filepath'] = os.path.join('trimmed', data['original_whole_audio'])
     data['discard_filepath'] = os.path.join('discard', data['original_whole_audio'])
     data['log_filepath'] = os.path.join('trimmed', data['original_whole_audio'].replace(".mp3", ".txt"))
